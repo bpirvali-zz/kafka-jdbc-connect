@@ -176,4 +176,27 @@ abstract class TableQuerier implements Comparable<TableQuerier> {
       return this.tableId.compareTo(other.tableId);
     }
   }
+
+  public String getTableName() {
+    return tableId.schemaName() + "." + tableId.tableName();
+  }
+
+  /**
+   * BP: 2020-03-11 10:11:50
+   *
+   * @return true means processing will continue, otherwise wait for the polling-interval and
+   *         re-queue yourself
+   */
+  public boolean doPreProcessing() {
+    return false;
+  }
+
+  /**
+   * BP: 2020-03-11 10:11:50
+   *
+   * @return Currently, true if any post-query processing is done and false otherwise
+   */
+  public boolean doPostProcessing() {
+    return false;
+  }
 }

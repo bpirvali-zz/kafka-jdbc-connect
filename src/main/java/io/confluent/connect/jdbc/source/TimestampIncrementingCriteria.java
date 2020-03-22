@@ -67,6 +67,13 @@ public class TimestampIncrementingCriteria {
      * @throws SQLException if there is a problem accessing the value
      */
     Long lastIncrementedValue() throws SQLException;
+
+    /**
+     * Get the high water mark for incremented value.
+     *
+     * @return the run-to long value for the id
+     */
+    Long higestIncrementedValue() throws SQLException;
   }
 
   protected static final BigDecimal LONG_MAX_VALUE_AS_BIGDEC = new BigDecimal(Long.MAX_VALUE);
@@ -155,8 +162,11 @@ public class TimestampIncrementingCriteria {
       CriteriaValues values
   ) throws SQLException {
     Long incOffset = values.lastIncrementedValue();
+    Long incHighWM = values.higestIncrementedValue();
     stmt.setLong(1, incOffset);
-    log.debug("Executing prepared statement with incrementing value = {}", incOffset);
+    stmt.setLong(2, incHighWM);
+    log.info("setQueryParametersIncrementing: Executing prepared statement with "
+           + "lowest incrementing value: {} and highest value: {}", incOffset, incHighWM);
   }
 
   protected void setQueryParametersTimestamp(
@@ -167,7 +177,8 @@ public class TimestampIncrementingCriteria {
     Timestamp endTime = values.endTimetampValue();
     stmt.setTimestamp(1, beginTime, DateTimeUtils.getTimeZoneCalendar(timeZone));
     stmt.setTimestamp(2, endTime, DateTimeUtils.getTimeZoneCalendar(timeZone));
-    log.debug("Executing prepared statement with timestamp value = {} end time = {}",
+    log.info("setQueryParametersTimestamp: Executing prepared statement with "
+                    + "timestamp value = {} end time = {}",
         DateTimeUtils.formatTimestamp(beginTime, timeZone),
         DateTimeUtils.formatTimestamp(endTime, timeZone)
     );
@@ -193,14 +204,15 @@ public class TimestampIncrementingCriteria {
           extractedTimestamp) <= 0
       );
     }
+
     Long extractedId = null;
     if (hasIncrementedColumn()) {
       extractedId = extractOffsetIncrementedId(schema, record);
 
       // If we are only using an incrementing column, then this must be incrementing.
       // If we are also using a timestamp, then we may see updates to older rows.
-      assert previousOffset == null || previousOffset.getIncrementingOffset() == -1L
-             || extractedId > previousOffset.getIncrementingOffset() || hasTimestampColumns();
+      //assert previousOffset == null || previousOffset.getIncrementingOffset() == -1L
+      //       || /*extractedId > previousOffset.getIncrementingOffset() ||*/ hasTimestampColumns();
     }
     return new TimestampIncrementingOffset(extractedTimestamp, extractedId);
   }
@@ -225,6 +237,24 @@ public class TimestampIncrementingCriteria {
     return null;
   }
 
+  private String findFieldName(Schema schema, String colName) {
+    Field f = schema.field(colName);
+    if (f != null) {
+      return colName;
+    }
+
+    f = schema.field(colName.toUpperCase());
+    if (f != null) {
+      return colName.toUpperCase();
+    }
+
+    f = schema.field(colName.toLowerCase());
+    if (f != null) {
+      return colName.toLowerCase();
+    }
+    return null;
+  }
+
   /**
    * Extract the incrementing column value from the row.
    *
@@ -237,14 +267,19 @@ public class TimestampIncrementingCriteria {
       Struct record
   ) {
     final Long extractedId;
-    final Field field = schema.field(incrementingColumn.name());
+    String colName = findFieldName(schema, incrementingColumn.name());
+    if (colName == null) {
+      throw new DataException("Incrementing column " + incrementingColumn.name() + " not found in "
+              + schema.fields().stream().map(f -> f.name()).collect(Collectors.joining(",")));
+    }
+    final Field field = schema.field(colName);
     if (field == null) {
       throw new DataException("Incrementing column " + incrementingColumn.name() + " not found in "
               + schema.fields().stream().map(f -> f.name()).collect(Collectors.joining(",")));
     }
 
     final Schema incrementingColumnSchema = field.schema();
-    final Object incrementingColumnValue = record.get(incrementingColumn.name());
+    final Object incrementingColumnValue = record.get(colName);
     if (incrementingColumnValue == null) {
       throw new ConnectException(
           "Null value for incrementing column of type: " + incrementingColumnSchema.type());
@@ -322,8 +357,9 @@ public class TimestampIncrementingCriteria {
   protected void incrementingWhereClause(ExpressionBuilder builder) {
     builder.append(" WHERE ");
     builder.append(incrementingColumn);
-    builder.append(" > ?");
-    builder.append(" ORDER BY ");
+    builder.append(" > ? AND ");
+    builder.append(incrementingColumn);
+    builder.append(" <= ? ORDER BY ");
     builder.append(incrementingColumn);
     builder.append(" ASC");
   }
@@ -333,9 +369,9 @@ public class TimestampIncrementingCriteria {
     coalesceTimestampColumns(builder);
     builder.append(" > ? AND ");
     coalesceTimestampColumns(builder);
-    builder.append(" < ? ORDER BY ");
+    //builder.append(" < ? ORDER BY ");
+    builder.append(" <= ? ORDER BY ");
     coalesceTimestampColumns(builder);
     builder.append(" ASC");
   }
-
 }

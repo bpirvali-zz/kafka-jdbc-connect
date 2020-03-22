@@ -70,7 +70,7 @@ public class TableMonitorThread extends Thread {
 
   @Override
   public void run() {
-    log.info("Starting thread to monitor tables.");
+    log.info("run: Starting thread to monitor tables.");
     while (shutdownLatch.getCount() > 0) {
       try {
         if (updateTables()) {
@@ -131,7 +131,7 @@ public class TableMonitorThread extends Thread {
   }
 
   public void shutdown() {
-    log.info("Shutting down thread monitoring tables.");
+    log.info("shutdown: Shutting down thread monitoring tables.");
     shutdownLatch.countDown();
   }
 
@@ -155,9 +155,18 @@ public class TableMonitorThread extends Thread {
       for (TableId table : tables) {
         String fqn1 = dialect.expressionBuilder().append(table, QuoteMethod.NEVER).toString();
         String fqn2 = dialect.expressionBuilder().append(table, QuoteMethod.ALWAYS).toString();
+        log.debug("fqn1: {}, fqn2: {}", fqn1, fqn2);
         if (whitelist.contains(fqn1) || whitelist.contains(fqn2)
             || whitelist.contains(table.tableName())) {
+          log.info("table: {} is detected as a source table", fqn1);
           filteredTables.add(table);
+        } else {
+          for (String strTable: whitelist) {
+            if (strTable.toLowerCase().equals(fqn1.toLowerCase())) {
+              log.info("table: {} is detected as a source table", fqn1);
+              filteredTables.add(table);
+            }
+          }
         }
       }
     } else if (blacklist != null) {
@@ -184,11 +193,16 @@ public class TableMonitorThread extends Thread {
       this.tables = filteredTables;
 
       if (filteredTables.isEmpty()) {
-        log.debug(
+        log.info(
             "Based on the supplied filtering rules, there are no matching tables to read from"
         );
+        log.info("White-list: {}", whitelist.toString());
+        log.info("List of meta-data tables: {}", dialect.expressionBuilder()
+                .appendList()
+                .delimitedBy(",")
+                .of(tables));
       } else {
-        log.debug(
+        log.info(
             "Based on the supplied filtering rules, the tables available to read from include: {}",
             dialect.expressionBuilder()
                 .appendList()

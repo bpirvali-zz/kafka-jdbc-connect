@@ -67,7 +67,8 @@ public class TimestampIncrementingTableQuerier extends TableQuerier implements C
   private final List<ColumnId> timestampColumns;
   private String incrementingColumnName;
   private long timestampDelay;
-  private TimestampIncrementingOffset offset;
+  // private TimestampIncrementingOffset offset;
+  protected TimestampIncrementingOffset offset;
   private TimestampIncrementingCriteria criteria;
   private final Map<String, String> partition;
   private final String topic;
@@ -111,6 +112,26 @@ public class TimestampIncrementingTableQuerier extends TableQuerier implements C
     this.timeZone = timeZone;
   }
 
+  protected String getIncrementingColumnName() {
+    return incrementingColumnName;
+  }
+
+  protected List<String> getTimestampColumnNames() {
+    return timestampColumnNames;
+  }
+
+  protected String getTopic() {
+    return topic;
+  }
+
+  protected Map<String, String> getPartition() {
+    return partition;
+  }
+
+  protected TimestampIncrementingCriteria getCriteria() {
+    return  criteria;
+  }
+
   @Override
   protected void createPreparedStatement(Connection db) throws SQLException {
     findDefaultAutoIncrementingColumn(db);
@@ -141,7 +162,7 @@ public class TimestampIncrementingTableQuerier extends TableQuerier implements C
     
     String queryString = builder.toString();
     recordQuery(queryString);
-    log.debug("{} prepared SQL query: {}", this, queryString);
+    log.info("createPreparedStatement: {} prepared SQL query: {}", this, queryString);
     stmt = dialect.createPreparedStatement(db, queryString);
   }
 
@@ -177,7 +198,7 @@ public class TimestampIncrementingTableQuerier extends TableQuerier implements C
   @Override
   protected ResultSet executeQuery() throws SQLException {
     criteria.setQueryParameters(stmt, this);
-    log.trace("Statement to execute: {}", stmt.toString());
+    log.info("executeQuery: Statement to execute: {}", stmt.toString());
     return stmt.executeQuery();
   }
 
@@ -195,6 +216,7 @@ public class TimestampIncrementingTableQuerier extends TableQuerier implements C
         throw new DataException(e);
       }
     }
+    log.info("extractRecord-2: {}", offset.getTimestampOffset());
     offset = criteria.extractValues(schemaMapping.schema(), record, offset);
     return new SourceRecord(partition, offset.toMap(), topic, record.schema(), record);
   }
@@ -216,6 +238,11 @@ public class TimestampIncrementingTableQuerier extends TableQuerier implements C
   @Override
   public Long lastIncrementedValue() {
     return offset.getIncrementingOffset();
+  }
+
+  @Override
+  public Long higestIncrementedValue() {
+    return  Long.MAX_VALUE;
   }
 
   @Override

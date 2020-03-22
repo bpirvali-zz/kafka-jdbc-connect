@@ -16,6 +16,7 @@
 package io.confluent.connect.jdbc.source;
 
 import java.util.TimeZone;
+
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.utils.SystemTime;
 import org.apache.kafka.common.utils.Time;
@@ -78,7 +79,7 @@ public class JdbcSourceTask extends SourceTask {
 
   @Override
   public void start(Map<String, String> properties) {
-    log.info("Starting JDBC source task");
+    log.info("start: Starting JDBC source task");
     try {
       config = new JdbcSourceTaskConfig(properties);
     } catch (ConfigException e) {
@@ -95,7 +96,7 @@ public class JdbcSourceTask extends SourceTask {
     } else {
       dialect = DatabaseDialects.findBestFor(url, config);
     }
-    log.info("Using JDBC dialect {}", dialect.name());
+    log.info("start: Using JDBC dialect {}", dialect.name());
 
     cachedConnectionProvider = connectionProvider(maxConnAttempts, retryBackoff);
 
@@ -120,7 +121,7 @@ public class JdbcSourceTask extends SourceTask {
       List<Map<String, String>> partitions = new ArrayList<>(tables.size());
       switch (queryMode) {
         case TABLE:
-          log.trace("Starting in TABLE mode");
+          log.info("start: Starting in TABLE mode");
           for (String table : tables) {
             // Find possible partition maps for different offset protocols
             // We need to search by all offset protocol partition keys to support compatibility
@@ -130,7 +131,7 @@ public class JdbcSourceTask extends SourceTask {
           }
           break;
         case QUERY:
-          log.trace("Starting in QUERY mode");
+          log.info("start: Starting in QUERY mode");
           partitions.add(Collections.singletonMap(JdbcSourceConnectorConstants.QUERY_NAME_KEY,
                                                   JdbcSourceConnectorConstants.QUERY_NAME_VALUE));
           break;
@@ -138,7 +139,7 @@ public class JdbcSourceTask extends SourceTask {
           throw new ConnectException("Unknown query mode: " + queryMode);
       }
       offsets = context.offsetStorageReader().offsets(partitions);
-      log.trace("The partition offsets are {}", offsets);
+      log.info("start: partition offsets are {}", offsets);
     }
 
     String incrementingColumn
@@ -186,7 +187,7 @@ public class JdbcSourceTask extends SourceTask {
         for (Map<String, String> toCheckPartition : tablePartitionsToCheck) {
           offset = offsets.get(toCheckPartition);
           if (offset != null) {
-            log.info("Found offset {} for partition {}", offsets, toCheckPartition);
+            log.info("start: Found offset {} for partition {}", offsets, toCheckPartition);
             break;
           }
         }
@@ -235,6 +236,49 @@ public class JdbcSourceTask extends SourceTask {
                 suffix
             )
         );
+      } else if (mode.equals(JdbcSourceTaskConfig.MODE_BATCH_ID)) {
+
+        // -------------------------------------------
+        // BP: 2020-03-13 12:33:01
+        //
+        // There is a check-style limitation of 10
+        // parameters per method call
+        // So, we need to create entity-classes
+        // as method arguments.
+        // -------------------------------------------
+        BatchIdTableQuerier.BatchModeInfo batchModeInfo =
+                new BatchIdTableQuerier.BatchModeInfo(
+                        cachedConnectionProvider,
+                        dialect,
+                        config.getString(JdbcSourceTaskConfig.BATCH_QUERY_PRE_RUN_CHECK_CONFIG),
+                        config.getString(JdbcSourceTaskConfig.BATCH_OFFSETS_STORAGE_CONFIG),
+                        config.getString(JdbcSourceTaskConfig.BATCH_DEFAULT_OFFSET_START_CONFIG),
+                        tableOrQuery,
+                        timestampColumns,
+                        (timestampColumns == null || timestampColumns.size() == 0)
+                                ? incrementingColumn : null);
+        BatchIdManager batchIdManager = BatchIdTableQuerier.createBatchIdManager(
+                batchModeInfo,
+                dialect,
+                timestampColumns,
+                topicPrefix,
+                tableOrQuery
+        );
+        tableQueue.add(
+            new BatchIdTableQuerier(
+                batchModeInfo,
+                queryMode,
+                batchIdManager,
+                topicPrefix,
+                timestampColumns,
+                (timestampColumns == null || timestampColumns.size() == 0)
+                            ? incrementingColumn : null,
+                offset,
+                timestampDelayInterval,
+                timeZone,
+                suffix
+            )
+        );
       } else if (mode.endsWith(JdbcSourceTaskConfig.MODE_TIMESTAMP_INCREMENTING)) {
         tableQueue.add(
             new TimestampIncrementingTableQuerier(
@@ -254,7 +298,7 @@ public class JdbcSourceTask extends SourceTask {
     }
 
     running.set(true);
-    log.info("Started JDBC source task");
+    log.info("start: Started JDBC source task");
   }
 
   protected CachedConnectionProvider connectionProvider(int maxConnAttempts, long retryBackoff) {
@@ -301,7 +345,8 @@ public class JdbcSourceTask extends SourceTask {
         }
         initialPartitionOffset = new HashMap<String, Object>();
         initialPartitionOffset.put(TimestampIncrementingOffset.TIMESTAMP_FIELD, timestampInitial);
-        log.info("No offsets found for '{}', so using configured timestamp {}", tableOrQuery,
+        log.info("computeInitialOffset: No offsets found for '{}', "
+                       + "so using configured timestamp {}", tableOrQuery,
                 timestampInitial);
       }
       return initialPartitionOffset;
@@ -310,14 +355,14 @@ public class JdbcSourceTask extends SourceTask {
 
   @Override
   public void stop() throws ConnectException {
-    log.info("Stopping JDBC source task");
+    log.info("stop: Stopping JDBC source task");
     running.set(false);
     // All resources are closed at the end of 'poll()' when no longer running or
     // if there is an error
   }
 
   protected void closeResources() {
-    log.info("Closing resources for JDBC source task");
+    log.info("closeResources: Closing resources for JDBC source task");
     try {
       if (cachedConnectionProvider != null) {
         cachedConnectionProvider.close();
@@ -340,19 +385,35 @@ public class JdbcSourceTask extends SourceTask {
 
   @Override
   public List<SourceRecord> poll() throws InterruptedException {
-    log.trace("{} Polling for new data");
+    log.info("poll: {} Polling for new data");
 
+    boolean logedWait = false;
+    long pollInterv = 0L + config.getInt(JdbcSourceTaskConfig.POLL_INTERVAL_MS_CONFIG);
     while (running.get()) {
       final TableQuerier querier = tableQueue.peek();
 
       if (!querier.querying()) {
+        if (!querier.doPreProcessing()) {
+          log.info("----------------------------------------------------------");
+          log.info("-- doPreProcessing = false, table: {}", querier.getTableName());
+          log.info("-- Sending this table back to the end of the queue");
+          log.info("-- Sleeping for poll-interval: {}", pollInterv);
+          log.info("----------------------------------------------------------");
+          resetAndRequeueHead(querier);
+          time.sleep(pollInterv);
+          continue;
+        }
         // If not in the middle of an update, wait for next update time
         final long nextUpdate = querier.getLastUpdate()
             + config.getInt(JdbcSourceTaskConfig.POLL_INTERVAL_MS_CONFIG);
+
         final long now = time.milliseconds();
         final long sleepMs = Math.min(nextUpdate - now, 100);
         if (sleepMs > 0) {
-          log.trace("Waiting {} ms to poll {} next", nextUpdate - now, querier.toString());
+          if (!logedWait) {
+            log.info("poll: Waiting {} ms to poll {} next", nextUpdate - now, querier.toString());
+            logedWait = true;
+          }
           time.sleep(sleepMs);
           continue; // Re-check stop flag before continuing
         }
@@ -360,7 +421,7 @@ public class JdbcSourceTask extends SourceTask {
 
       final List<SourceRecord> results = new ArrayList<>();
       try {
-        log.debug("Checking for next block of results from {}", querier.toString());
+        log.info("poll: Checking for next block of results from {}", querier.toString());
         querier.maybeStartQuery(cachedConnectionProvider.getConnection());
 
         int batchMaxRows = config.getInt(JdbcSourceTaskConfig.BATCH_MAX_ROWS_CONFIG);
@@ -372,15 +433,17 @@ public class JdbcSourceTask extends SourceTask {
         if (!hadNext) {
           // If we finished processing the results from the current query, we can reset and send
           // the querier to the tail of the queue
+          log.info("poll: (!hadNext) was true");
+          querier.doPostProcessing();
           resetAndRequeueHead(querier);
         }
 
         if (results.isEmpty()) {
-          log.trace("No updates for {}", querier.toString());
+          log.trace("poll: No updates for {}", querier.toString());
           continue;
         }
 
-        log.debug("Returning {} records for {}", results.size(), querier.toString());
+        log.info("poll: Returning {} records for {}", results.size(), querier.toString());
         return results;
       } catch (SQLException sqle) {
         log.error("Failed to run query for table {}: {}", querier.toString(), sqle);
@@ -399,6 +462,7 @@ public class JdbcSourceTask extends SourceTask {
     if (querier != null) {
       resetAndRequeueHead(querier);
     }
+    log.info("poll: shutdown...");
     closeResources();
     return null;
   }

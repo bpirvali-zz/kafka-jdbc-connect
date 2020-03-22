@@ -154,6 +154,7 @@ public class JdbcSourceConnectorConfig extends AbstractConfig {
   public static final String MODE_TIMESTAMP = "timestamp";
   public static final String MODE_INCREMENTING = "incrementing";
   public static final String MODE_TIMESTAMP_INCREMENTING = "timestamp+incrementing";
+  public static final String MODE_BATCH_ID = "batch-id";
 
   public static final String INCREMENTING_COLUMN_NAME_CONFIG = "incrementing.column.name";
   private static final String INCREMENTING_COLUMN_NAME_DOC =
@@ -163,6 +164,7 @@ public class JdbcSourceConnectorConfig extends AbstractConfig {
   public static final String INCREMENTING_COLUMN_NAME_DEFAULT = "";
   private static final String INCREMENTING_COLUMN_NAME_DISPLAY = "Incrementing Column Name";
 
+  public static final String BATCH_ID_COLUMN_NAME_CONFIG = "batch-id.column.name";
   public static final String TIMESTAMP_COLUMN_NAME_CONFIG = "timestamp.column.name";
   private static final String TIMESTAMP_COLUMN_NAME_DOC =
       "Comma separated list of one or more timestamp columns to detect new or modified rows using "
@@ -307,6 +309,31 @@ public class JdbcSourceConnectorConfig extends AbstractConfig {
       + "* SYNONYM\n"
       + "In most cases it only makes sense to have either TABLE or VIEW.";
   private static final String TABLE_TYPE_DISPLAY = "Table Types";
+
+  // -------------------------------------------
+  // BP: 2020-03-03 17:22:12
+  // -------------------------------------------
+  public static final String BATCH_QUERY_PRE_RUN_CHECK_CONFIG = "batch.query.pre.run_check";
+  public static final String BATCH_QUERY_PRE_RUN_CHECK_DEFAULT = "";
+  public static final String BATCH_QUERY_PRE_RUN_CHECK_DOC =
+          "Batch mode's pre-query, if no data is returned, it will wait!";
+  public static final String BATCH_QUERY_PRE_RUN_CHECK_DISPLAY = "Pre-Query for Run or Wait";
+
+  public static final String BATCH_OFFSETS_STORAGE_CONFIG = "batch.offsets_storage";
+  public static final String BATCH_OFFSETS_STORAGE_DEFAULT = "";
+  public static final String BATCH_OFFSETS_STORAGE_DOC =
+          "Batch mode's offset storage: {kafka.topic-name, schema.table-name}";
+  public static final String BATCH_OFFSETS_STORAGE_DISPLAY = "Batch mode's Offset Storage";
+
+  public static final String BATCH_DEFAULT_OFFSET_START_CONFIG = "batch.default_offset_start";
+  public static final String BATCH_DEFAULT_OFFSET_START_DEFAULT = "";
+  public static final String BATCH_DEFAULT_OFFSET_START_DOC =
+          "Batch mode's start offset, for example: '1700-01-01 00:00:00'";
+  public static final String BATCH_DEFAULT_OFFSET_START_DISPLAY = "Batch mode's Start Offset";
+
+  // -------------------------------------------
+  // /BP
+  // -------------------------------------------
 
   public static ConfigDef baseConfigDef() {
     ConfigDef config = new ConfigDef();
@@ -458,7 +485,8 @@ public class JdbcSourceConnectorConfig extends AbstractConfig {
             MODE_BULK,
             MODE_TIMESTAMP,
             MODE_INCREMENTING,
-            MODE_TIMESTAMP_INCREMENTING
+            MODE_TIMESTAMP_INCREMENTING,
+            MODE_BATCH_ID
         ),
         Importance.HIGH,
         MODE_DOC,
@@ -545,7 +573,44 @@ public class JdbcSourceConnectorConfig extends AbstractConfig {
         MODE_GROUP,
         ++orderInGroup,
         Width.MEDIUM,
-        QUERY_SUFFIX_DISPLAY);
+        QUERY_SUFFIX_DISPLAY
+    // -------------------------------------------
+    // BP: 2020-03-03 17:21:21
+    // -------------------------------------------
+    ).define(
+        BATCH_QUERY_PRE_RUN_CHECK_CONFIG,
+        Type.STRING,
+        BATCH_QUERY_PRE_RUN_CHECK_DEFAULT,
+        Importance.LOW,
+        BATCH_QUERY_PRE_RUN_CHECK_DOC,
+        MODE_GROUP,
+        ++orderInGroup,
+        Width.MEDIUM,
+        BATCH_QUERY_PRE_RUN_CHECK_DISPLAY
+    ).define(
+        BATCH_OFFSETS_STORAGE_CONFIG,
+        Type.STRING,
+        BATCH_OFFSETS_STORAGE_DEFAULT,
+        Importance.LOW,
+        BATCH_OFFSETS_STORAGE_DOC,
+        MODE_GROUP,
+        ++orderInGroup,
+        Width.MEDIUM,
+        BATCH_OFFSETS_STORAGE_DISPLAY
+    ).define(
+        BATCH_DEFAULT_OFFSET_START_CONFIG,
+        Type.STRING,
+        BATCH_DEFAULT_OFFSET_START_DEFAULT,
+        Importance.LOW,
+        BATCH_DEFAULT_OFFSET_START_DOC,
+        MODE_GROUP,
+        ++orderInGroup,
+        Width.MEDIUM,
+        BATCH_DEFAULT_OFFSET_START_DISPLAY)
+    // -------------------------------------------
+    // /BP
+    // -------------------------------------------
+    ;
   }
 
   private static final void addConnectorOptions(ConfigDef config) {
@@ -737,17 +802,19 @@ public class JdbcSourceConnectorConfig extends AbstractConfig {
     @Override
     public boolean visible(String name, Map<String, Object> config) {
       String mode = (String) config.get(MODE_CONFIG);
+      boolean booleanVar = name.equals(TIMESTAMP_COLUMN_NAME_CONFIG)
+              || name.equals(VALIDATE_NON_NULL_CONFIG);
+
+      if (mode.equals(MODE_BATCH_ID) || mode.equals(MODE_TIMESTAMP_INCREMENTING)) {
+        return booleanVar || name.equals(INCREMENTING_COLUMN_NAME_CONFIG);
+      }
       switch (mode) {
         case MODE_BULK:
           return false;
         case MODE_TIMESTAMP:
-          return name.equals(TIMESTAMP_COLUMN_NAME_CONFIG) || name.equals(VALIDATE_NON_NULL_CONFIG);
+          return booleanVar;
         case MODE_INCREMENTING:
           return name.equals(INCREMENTING_COLUMN_NAME_CONFIG)
-                 || name.equals(VALIDATE_NON_NULL_CONFIG);
-        case MODE_TIMESTAMP_INCREMENTING:
-          return name.equals(TIMESTAMP_COLUMN_NAME_CONFIG)
-                 || name.equals(INCREMENTING_COLUMN_NAME_CONFIG)
                  || name.equals(VALIDATE_NON_NULL_CONFIG);
         case MODE_UNSPECIFIED:
           throw new ConfigException("Query mode must be specified");
