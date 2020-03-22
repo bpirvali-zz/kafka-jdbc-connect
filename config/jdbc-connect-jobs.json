@@ -1,0 +1,89 @@
+curl -X POST http://localhost:8083/connectors -H "Content-Type: application/json" -d '{
+    "name": "jdbc_src_td_dfocusvw_sales_ord_tran",
+    "config": {
+            "connector.class": "io.confluent.connect.jdbc.JdbcSourceConnector",
+            "connection.url": "jdbc:teradata://tddev.dw.bizsys.tmcs/DATABASE=DFOCUSVW,DBS_PORT=1025",
+            "connection.user": "fdx",
+            "connection.password": "xdf",
+            "topic.prefix": "td_dfocusvw-",
+            "dialect.name": "GenericDatabaseDialect",
+
+            "mode": "batch-id",
+            "batch.query.pre.run_check": "SELECT Table_Max_Td_Update_Ts FROM dfocusvw.LOAD_STATUS WHERE Table_Nm = __TABLE_NAME__ AND Table_Max_Td_Update_Ts > __OFFSET__",
+            "batch.offsets_storage": "dfocusvw.offsets_table",
+            "batch.default_offset_start": "1600-01-01 00:00:00",
+
+            "timestamp.column.name": "Td_Update_Ts",
+            "validate.non.null": false,
+            "db.timezone": "UTC",
+            "table.types": "VIEW",
+            "batch.max.rows": 5000,
+            "poll.interval.ms": "10000",
+            "table.whitelist": "DFOCUSVW.SALES_ORD_TRAN_3"
+            }
+    }'|jq
+
+curl -X POST http://localhost:8083/connectors -H "Content-Type: application/json" -d '{
+    "name": "jdbc_src_td_dfocusvw_ctry",
+    "config": {
+            "connector.class": "io.confluent.connect.jdbc.JdbcSourceConnector",
+            "connection.url": "jdbc:teradata://tddev.dw.bizsys.tmcs/DATABASE=DFOCUSVW,DBS_PORT=1025",
+            "connection.user": "fdx",
+            "connection.password": "xdf",
+            "topic.prefix": "td_dfocusvw_ctry-",
+            "dialect.name": "GenericDatabaseDialect",
+            "mode": "batch-id",
+            "batch.query.pre.run_check": "SELECT Table_Max_Td_Update_Id FROM dfocusvw.LOAD_STATUS WHERE Table_Nm = __TABLE_NAME__ AND Table_Max_Td_Update_id > __OFFSET__",
+            "batch.offsets_storage": "dfocusvw.offsets_table",
+            "batch.default_offset_start": -5000,
+            "incrementing.column.name": "last_batch_id",
+            "table.types": "VIEW",
+            "validate.non.null": false,
+            "batch.max.rows": 10,
+             "poll.interval.ms": "10000",
+            "table.whitelist": "dfoCuSvw.CTrY"             
+            }
+    }'|jq
+
+curl -X POST http://localhost:8083/connectors -H "Content-Type: application/json" -d '{
+"name": "jdbc_src_td_dfocusvw_test_1",
+"config": {
+        "connector.class": "io.confluent.connect.jdbc.JdbcSourceConnector",
+        "connection.url": "jdbc:teradata://tddev.dw.bizsys.tmcs/DATABASE=DFOcusvw,DBS_PORT=1025",
+        "connection.user": "fdx",
+        "connection.password": "xdf",
+        "topic.prefix": "td_dfocusvw_test_1-",
+        "dialect.name": "GenericDatabaseDialect",
+        "mode": "batch-id",
+        "batch.query.pre.run_check": "SELECT Table_Max_Td_Update_Ts FROM DFOCUSVW.META_LOAD_STATUS WHERE DB_Table_Nm = __TABLE_NAME__ AND Table_Max_Td_Update_Ts > __OFFSET__",
+        "batch.offsets_storage": "dfocusvw.offsets_table",
+        "batch.default_offset_start": "1600-01-01 00:00:00",
+        "timestamp.column.name": "Td_Update_Ts",
+        "validate.non.null": false,
+        "batch.max.rows": 2,
+            "poll.interval.ms": "10000",
+        "table.whitelist": "DFOCUSVW.T1, DFOCUSVW.T2"             
+        }
+}'|jq
+
+curl -X POST http://localhost:8083/connectors -H "Content-Type: application/json" -d '{
+"name": "jdbc_src_td_id_dfocusvw_t3",
+"config": {
+        "connector.class": "io.confluent.connect.jdbc.JdbcSourceConnector",
+        "connection.url": "jdbc:teradata://tddev.dw.bizsys.tmcs/DATABASE=DFOcusvw,DBS_PORT=1025",
+        "connection.user": "fdx",
+        "connection.password": "xdf",
+        "topic.prefix": "td_id_-",
+        "dialect.name": "GenericDatabaseDialect",
+        "mode": "batch-id",
+        "batch.query.pre.run_check": "SELECT Table_Max_Td_Update_Id FROM DFOCUSVW.META_LOAD_STATUS WHERE DB_Table_Nm = __TABLE_NAME__ AND Table_Max_Td_Update_Id > __OFFSET__",
+        "batch.offsets_storage": "dfocusvw.offsets_table",
+        "batch.default_offset_start": -10000,
+        "incrementing.column.name": "offset_id",
+        "validate.non.null": false,
+        "batch.max.rows": 2,
+            "poll.interval.ms": "10000",
+        "table.whitelist": "dfOcusvw.t3"             
+        }
+}'|jq
+            
